@@ -1,5 +1,7 @@
 from util import * #local namespace
 
+BUFFER_TIME_MINUTES = 1  # Buffer time between events
+
 num_work_sessions = 5   
 repetitions = 3
 work_time = 25
@@ -14,7 +16,7 @@ def main():
     local_tz = ZoneInfo("America/Los_Angeles")  # Adjust this to your timezone
     start_time = datetime.now(local_tz).replace(second=0, microsecond=0) + timedelta(minutes=1)
     total_minutes = (num_work_sessions * (work_time + small_break) + 
-                     (num_work_sessions // repetitions) * (large_break - small_break))
+                     (num_work_sessions // repetitions) * (large_break - small_break)) + (BUFFER_TIME_MINUTES * (num_work_sessions - 1))
     end_time = start_time + timedelta(minutes=total_minutes)
 
     overlapping_events = check_overlapping_events(service, calendar_id, start_time, end_time)
@@ -31,8 +33,7 @@ def main():
             if(choice == '3'):
                 return
     
-
-    pomodoro_events = create_pomodoro_events(service, calendar_id, start_time, num_work_sessions, repetitions, work_time, small_break, large_break)
+    pomodoro_events = create_pomodoro_events(service, calendar_id, start_time, num_work_sessions, repetitions, work_time, small_break, large_break, BUFFER_TIME_MINUTES)
 
     batch = service.new_batch_http_request(callback=batch_callback)
     for event in pomodoro_events:
@@ -40,9 +41,6 @@ def main():
     execute_with_backoff(batch.execute, True)
 
     print(f"Successfully added {len(pomodoro_events)} Pomodoro events to your calendar.")
-
-
-
 
 if __name__ == '__main__':
     main()

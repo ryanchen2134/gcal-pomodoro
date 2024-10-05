@@ -3,7 +3,6 @@ import json
 import time
 import webbrowser
 
-
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta, timezone
 
@@ -13,10 +12,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import BatchHttpRequest
+from google.auth.exceptions import RefreshError
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 CALENDAR_ID_FILE = 'pomodoro_calendar_id.json'
+BUFFER_TIME_MINUTES = 2  # Buffer time between events
 
 def get_calendar_service():
     creds = None
@@ -24,9 +25,12 @@ def get_calendar_service():
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
     
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+        try:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                raise RefreshError
+        except RefreshError:
             flow = InstalledAppFlow.from_client_secrets_file(
                 'credentials.json', SCOPES)
             try:
@@ -38,8 +42,7 @@ def get_calendar_service():
             
             # Additional check after OAuth flow
             if not creds or not creds.valid:
-                raise ValueError("Failed to obtain valid credentials. Please check your authentication process.")
-        
+                raise ValueError("Failed to obtain valid credentials. Please check your authentication process.")        
         # Save the credentials for the next run
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
@@ -75,7 +78,6 @@ def get_pomodoro_calendar_id(service):
     raise ValueError("Pomodoro calendar not found")
 
 
-
 def execute_with_backoff(request, is_batch_request = False, max_retries=5):
     for n in range(max_retries):
         try:
@@ -88,7 +90,6 @@ def execute_with_backoff(request, is_batch_request = False, max_retries=5):
                 time.sleep(delay)
             else:
                 raise
-
 
 def check_overlapping_events(service, calendar_id, start_time, end_time):
     # Format the time strings correctly (RFC 3339 format)
@@ -120,7 +121,7 @@ def delete_overlapping_events(overlapping_events, service, calendar_id):
         batch.add(service.events().delete(calendarId=calendar_id, eventId=event['id']))
     execute_with_backoff(batch.execute, True)
         
-def create_pomodoro_events(service, calendar_id, start_time, num_work_sessions, repetitions, work_time, small_break, large_break):
+def create_pomodoro_events(service, calendar_id, start_time, num_work_sessions, repetitions, work_time, small_break, large_break, BUFFER_TIME_MINUTES):
     events = []
     current_time = start_time
 
@@ -132,7 +133,7 @@ def create_pomodoro_events(service, calendar_id, start_time, num_work_sessions, 
             'end': {'dateTime': work_end.isoformat(), 'timeZone': 'America/Los_Angeles'},
             'colorId': '11'  # Red color for work sessions
         })
-        current_time = work_end
+        current_time = work_end + timedelta(minutes=BUFFER_TIME_MINUTES)  # Update current_time to the end of the work session with buffer
 
         if i < num_work_sessions - 1:
             if (i + 1) % repetitions == 0:
@@ -149,7 +150,7 @@ def create_pomodoro_events(service, calendar_id, start_time, num_work_sessions, 
                 'end': {'dateTime': break_end.isoformat(), 'timeZone': 'America/Los_Angeles'},
                 'colorId': '2'  # Green color for breaks
             })
-            current_time = break_end
+            current_time = break_end + timedelta(minutes=BUFFER_TIME_MINUTES)  # Update current_time to the end of the break with buffer
 
     return events
 
